@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Caesars Sportsbook - Super Bowl Squares</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -811,19 +811,39 @@ const POLLING_INTERVAL = 3000; // Poll every 3 seconds
           
           if (data?.data) {
             const d = data.data;
-            if (d.grid) setGrid(d.grid);
-            if (d.rowNumbers) setRowNumbers(d.rowNumbers);
-            if (d.colNumbers) setColNumbers(d.colNumbers);
-            if (d.numbersGenerated !== undefined) setNumbersGenerated(d.numbersGenerated);
-            if (d.homeTeam) setHomeTeam(d.homeTeam);
-            if (d.awayTeam) setAwayTeam(d.awayTeam);
-            if (d.homeScore !== undefined) setHomeScore(d.homeScore);
-            if (d.awayScore !== undefined) setAwayScore(d.awayScore);
-            if (d.quarter) { setQuarter(d.quarter); lastQuarterRef.current = d.quarter; }
-            if (d.q1Score) setQ1Score(d.q1Score);
-            if (d.q2Score) setQ2Score(d.q2Score);
-            if (d.q3Score) setQ3Score(d.q3Score);
-            if (d.finalScore) setFinalScore(d.finalScore);
+            
+            // Only update if data actually changed to prevent unnecessary re-renders
+            if (d.grid && JSON.stringify(d.grid) !== JSON.stringify(grid)) {
+              setGrid(d.grid);
+            }
+            
+            // CRITICAL: Only update numbers if they exist in database and we don't have them locally
+            if (d.rowNumbers && d.rowNumbers.some(n => n !== null)) {
+              if (rowNumbers.every(n => n === null) || JSON.stringify(d.rowNumbers) !== JSON.stringify(rowNumbers)) {
+                setRowNumbers(d.rowNumbers);
+              }
+            }
+            if (d.colNumbers && d.colNumbers.some(n => n !== null)) {
+              if (colNumbers.every(n => n === null) || JSON.stringify(d.colNumbers) !== JSON.stringify(colNumbers)) {
+                setColNumbers(d.colNumbers);
+              }
+            }
+            
+            if (d.numbersGenerated !== undefined && d.numbersGenerated !== numbersGenerated) {
+              setNumbersGenerated(d.numbersGenerated);
+            }
+            if (d.homeTeam && d.homeTeam !== homeTeam) setHomeTeam(d.homeTeam);
+            if (d.awayTeam && d.awayTeam !== awayTeam) setAwayTeam(d.awayTeam);
+            if (d.homeScore !== undefined && d.homeScore !== homeScore) setHomeScore(d.homeScore);
+            if (d.awayScore !== undefined && d.awayScore !== awayScore) setAwayScore(d.awayScore);
+            if (d.quarter && d.quarter !== quarter) { 
+              setQuarter(d.quarter); 
+              lastQuarterRef.current = d.quarter; 
+            }
+            if (d.q1Score && JSON.stringify(d.q1Score) !== JSON.stringify(q1Score)) setQ1Score(d.q1Score);
+            if (d.q2Score && JSON.stringify(d.q2Score) !== JSON.stringify(q2Score)) setQ2Score(d.q2Score);
+            if (d.q3Score && JSON.stringify(d.q3Score) !== JSON.stringify(q3Score)) setQ3Score(d.q3Score);
+            if (d.finalScore && JSON.stringify(d.finalScore) !== JSON.stringify(finalScore)) setFinalScore(d.finalScore);
           }
         } catch (error) {
           console.error('Error in loadBoardData:', error);
