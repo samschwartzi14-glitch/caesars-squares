@@ -123,6 +123,11 @@
       animation: pulse 2s ease-in-out infinite;
     }
 
+    .status-badge.syncing {
+      background: var(--gold);
+      color: var(--navy);
+    }
+
     .live-dot {
       width: 8px;
       height: 8px;
@@ -724,16 +729,17 @@
 
   <script type="text/babel">
     const { useState, useEffect, useCallback, useRef } = React;
+    
 // Supabase Configuration
 const SUPABASE_URL = 'https://auzbvnpwewvrwgtrayx.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_secret_TxrSVSifZP6KMs3ie_UmGw_GBM9lG1_';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1emJ2bnB3ZXd2cndndHJheHl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwMDk4MDksImV4cCI6MjA4NDU4NTgwOX0.ftsvrGa9PHDvyH8uwRBri6v3a7GIyJmFrZuCeMVVaHk'; // Replace with your actual key
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const GRID_SIZE = 10;
+
+const GRID_SIZE = 10;
+const POLLING_INTERVAL = 3000; // Poll every 3 seconds
     
     function App() {
       const [boardId, setBoardId] = useState('');
-      const [boardLoaded, setBoardLoaded] = useState(false);
-      const supabaseChannelRef = useRef(null);
       const [renderKey, setRenderKey] = useState(0);
       const [grid, setGrid] = useState(() => 
         Array(GRID_SIZE).fill(null).map(() => 
@@ -759,93 +765,136 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       const [autoUpdate, setAutoUpdate] = useState(false);
       const [showToast, setShowToast] = useState(false);
       const [toastMessage, setToastMessage] = useState('');
+      const [isSyncing, setIsSyncing] = useState(false);
       const lastQuarterRef = useRef('Pre-Game');
+      const isUpdatingRef = useRef(false); // Prevent update loops
+      const pollingIntervalRef = useRef(null);
 
-// Initialize board and load from Supabase  
-useEffect(() => {
-  const init = async () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const id = urlParams.get('board') || `SB${Date.now().toString().slice(-6)}`;
-    setBoardId(id);
-    document.getElementById('board-id-display').textContent = `Board: ${id}`;
+      // Initialize board and set up polling
+      useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const id = urlParams.get('board') || `SB${Date.now().toString().slice(-6)}`;
+        setBoardId(id);
+        document.getElementById('board-id-display').textContent = `Board: ${id}`;
 
-    // Load from Supabase
-    const { data } = await supabase.from('boards').select('data').eq('board_id', id).single();
-    
-    if (data?.data) {
-      const d = data.data;
-      if (d.grid) setGrid(d.grid);
-      if (d.rowNumbers) setRowNumbers(d.rowNumbers);
-      if (d.colNumbers) setColNumbers(d.colNumbers);
-      if (d.numbersGenerated) setNumbersGenerated(d.numbersGenerated);
-      if (d.homeTeam) setHomeTeam(d.homeTeam);
-      if (d.awayTeam) setAwayTeam(d.awayTeam);
-      if (d.homeScore !== undefined) setHomeScore(d.homeScore);
-      if (d.awayScore !== undefined) setAwayScore(d.awayScore);
-      if (d.quarter) { setQuarter(d.quarter); lastQuarterRef.current = d.quarter; }
-      if (d.q1Score) setQ1Score(d.q1Score);
-      if (d.q2Score) setQ2Score(d.q2Score);
-      if (d.q3Score) setQ3Score(d.q3Score);
-      if (d.finalScore) setFinalScore(d.finalScore);
-    }
+        // Initial load from Supabase
+        loadBoardData(id);
 
-    setBoardLoaded(true);
+        // Set up polling for real-time sync
+        pollingIntervalRef.current = setInterval(() => {
+          loadBoardData(id);
+        }, POLLING_INTERVAL);
 
-    // Real-time subscription
-    const channel = supabase.channel(`board-${id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'boards', filter: `board_id=eq.${id}` },
-        (payload) => {
-          if (payload.new?.data) {
-            const d = payload.new.data;
+        return () => {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+        };
+      }, []);
+
+      // Load board data from Supabase
+      const loadBoardData = async (id) => {
+        if (isUpdatingRef.current) return; // Skip if we're currently updating
+        
+        try {
+          setIsSyncing(true);
+          const { data, error } = await supabase
+            .from('boards')
+            .select('data')
+            .eq('board_id', id)
+            .single();
+          
+          if (error && error.code !== 'PGRST116') { // PGRST116 = not found, which is OK
+            console.error('Error loading board:', error);
+            return;
+          }
+          
+          if (data?.data) {
+            const d = data.data;
             if (d.grid) setGrid(d.grid);
             if (d.rowNumbers) setRowNumbers(d.rowNumbers);
             if (d.colNumbers) setColNumbers(d.colNumbers);
-            if (d.numbersGenerated) setNumbersGenerated(d.numbersGenerated);
+            if (d.numbersGenerated !== undefined) setNumbersGenerated(d.numbersGenerated);
             if (d.homeTeam) setHomeTeam(d.homeTeam);
             if (d.awayTeam) setAwayTeam(d.awayTeam);
             if (d.homeScore !== undefined) setHomeScore(d.homeScore);
             if (d.awayScore !== undefined) setAwayScore(d.awayScore);
-            if (d.quarter) setQuarter(d.quarter);
+            if (d.quarter) { setQuarter(d.quarter); lastQuarterRef.current = d.quarter; }
             if (d.q1Score) setQ1Score(d.q1Score);
             if (d.q2Score) setQ2Score(d.q2Score);
             if (d.q3Score) setQ3Score(d.q3Score);
             if (d.finalScore) setFinalScore(d.finalScore);
           }
+        } catch (error) {
+          console.error('Error in loadBoardData:', error);
+        } finally {
+          setIsSyncing(false);
         }
-      ).subscribe();
+      };
 
-    supabaseChannelRef.current = channel;
-    return () => { if (supabaseChannelRef.current) supabase.removeChannel(supabaseChannelRef.current); };
-  };
-  
-  init();
-}, []);
- // Save to Supabase
-useEffect(() => {
-  if (boardId && boardLoaded) {
-    const data = {
-      grid,
-      rowNumbers,
-      colNumbers,
-      numbersGenerated,
-      homeTeam,
-      awayTeam,
-      homeScore,
-      awayScore,
-      quarter,
-      q1Score,
-      q2Score,
-      q3Score,
-      finalScore
-    };
-    
-    supabase.from('boards').upsert({
-      board_id: boardId,
-      data: data,
-      updated_at: new Date().toISOString()
-    });
-  }
-}, [boardId, boardLoaded, grid, rowNumbers, colNumbers, numbersGenerated, homeTeam, awayTeam, homeScore, awayScore, quarter, q1Score, q2Score, q3Score, finalScore]);
+      // Save to Supabase
+      const saveBoardData = async () => {
+        if (!boardId || isUpdatingRef.current) return;
+        
+        isUpdatingRef.current = true;
+        
+        try {
+          const data = {
+            grid,
+            rowNumbers,
+            colNumbers,
+            numbersGenerated,
+            homeTeam,
+            awayTeam,
+            homeScore,
+            awayScore,
+            quarter,
+            q1Score,
+            q2Score,
+            q3Score,
+            finalScore
+          };
+          
+          const { error } = await supabase.from('boards').upsert({
+            board_id: boardId,
+            data: data,
+            updated_at: new Date().toISOString()
+          });
+
+          if (error) {
+            console.error('Error saving board:', error);
+          }
+        } catch (error) {
+          console.error('Error in saveBoardData:', error);
+        } finally {
+          // Wait a bit before allowing updates again to prevent loops
+          setTimeout(() => {
+            isUpdatingRef.current = false;
+          }, 1000);
+        }
+      };
+
+      // Save whenever board state changes
+      useEffect(() => {
+        if (boardId) {
+          saveBoardData();
+        }
+      }, [boardId, grid, rowNumbers, colNumbers, numbersGenerated, homeTeam, awayTeam, homeScore, awayScore, quarter, q1Score, q2Score, q3Score, finalScore]);
+
+      // Update sync indicator badge
+      useEffect(() => {
+        const statusBadges = document.getElementById('status-badges');
+        const existingSyncBadge = document.querySelector('.status-badge.syncing');
+        
+        if (isSyncing && !existingSyncBadge) {
+          const syncBadge = document.createElement('div');
+          syncBadge.className = 'status-badge syncing';
+          syncBadge.innerHTML = '<span class="live-dot"></span> SYNCING';
+          statusBadges.appendChild(syncBadge);
+        } else if (!isSyncing && existingSyncBadge) {
+          existingSyncBadge.remove();
+        }
+      }, [isSyncing]);
 
       // Fetch live scores from ESPN
       const fetchLiveScores = useCallback(async () => {
